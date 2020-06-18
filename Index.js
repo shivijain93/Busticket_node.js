@@ -42,7 +42,7 @@ function authenticateoperator(req,res,next){
 			message:"Unauthorized"
 		});
 	}else{
-		let decode=jwt.verify(token,'ddssdsdsd');
+		let decode=jwt.verify(token,'sadfghsadjy');
 		if(decode!== undefined){
 			next();
 		}else{
@@ -109,7 +109,7 @@ app.post('/register/passenger' ,function(req,res){
                if(result){
                    
                    //Generate token
-                   var jwtToken =jwt.sign({id:userdata.id},authenticate,'fasfsdfdsfs');
+                   var jwtToken =jwt.sign({id:userdata.id},authenticate,'fasfsdfdsfg');
                    console.log(jwtToken);
                res.json({
                    message:"Logged in",
