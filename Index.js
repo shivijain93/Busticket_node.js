@@ -1,421 +1,467 @@
-const express= require('express');
-const bodyParser=require('body-parser');
-const app=express();
-const cors =require('cors');
+const express = require('express');
+const bodyParser = require('body-parser');
+const app = express();
+const cors = require('cors');
 const bcrypt = require('bcrypt');
-const saltRounds = 10;
-const jwt=require('jsonwebtoken');
-const mongoClient=require('mongodb');
-url="mongodb://localhost:27017";
+const saltrounds = 10;
+const jwt = require('jsonwebtoken');
+const mongoClient = require('mongodb');
+url = "mongodb://localhost:27017";
 app.use(cors());
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({extended:true}));
+app.use(bodyParser.urlencoded({ extended: true }));
 
-function authenticatepassenger(req,res,next){
-	
-	let token=req.header('Authorization');
-	console.log(token);
-	if(token == undefined){
-		res.status(401).json({
-			message:"Unauthorized"
-		});
-	}else{
-		let decode=jwt.verify(token,'fasfsdfdsfs');
-		if(decode!== undefined){
-			next();
-		}else{
-			res.status(401).json({
-			message:"Unauthorized"
-		});
-		}
+function authenticate(req, res, next) {
+
+    let token = req.header('Authorization');
+    console.log(token);
+    if (token == undefined) {
+        res.status(401).json({
+            message: "Unauthorized"
+        });
+    } else {
+        let decode = jwt.verify(token, 'fasfsdfdsfs');
+        if (decode !== undefined) {
+            next();
+        } else {
+            res.status(401).json({
+                message: "Unauthorized"
+            });
+        }
     }
-    
-	
+
+
 }
 
-function authenticateoperator(req,res,next){
-	
-	let token=req.header('Authorization');
-	console.log(token);
-	if(token == undefined){
-		res.status(401).json({
-			message:"Unauthorized"
-		});
-	}else{
-		let decode=jwt.verify(token,'sadfghsadjy');
-		if(decode!== undefined){
-			next();
-		}else{
-			res.status(401).json({
-			message:"Unauthorized"
-		});
-		}
-    }
-    
-	
-}
 
-app.post('/register/passenger' ,function(req,res){
-    mongoClient.connect(url, (err, client) => {
-           if (err) return console.log(err);
-           var db=client.db("busdb");
-           var newData={
-           name :req.body.name,
-           age:req.body.age,
-           email:req.body.email, 
-           pwd:req.body.pwd,
-           contact:req.body.contact,
-            ticketsbooked:{
-                ticketid:null,
-                price:null,
-                status:null,
-                seat:null,
-                date:null
-            }
-                   
-           }
-           bcrypt.genSalt(saltRounds, function(err, salt) {
-               if(err)throw err;
-               console.log(salt); // Salt is generated(hash)
-           bcrypt.hash(req.body.pwd, salt, function(err, hash) {
-               if(err)throw err;
-               console.log(hash);
-               newData.pwd=hash;
-       db.collection("buspass").insertOne(newData,function(err,data){
-           if(err)throw err;
-           client.close();
-           res.json({
-            message:"Passenger registered Successfully"
-       });
-           });
-           
-           
-   
-           });
-       });
-   });
+app.post("/login", function (req, res) {
+    
+
+    
+
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        db.collection("bususer").findOne({ email: req.body.email }, function (err, userData) {
+            if (err) throw err;
+            
+            //compare the password and generate jwt token
+            bcrypt.compare(req.body.password, userData.password, function (err, result) {
+
+                if (result) {
+
+                    var type;
+                    if (userData.type == 'P') {
+                        type = "Passenger"
+                    }
+                    else if (userData.type == 'O') {
+                        type = "Bus Operator"
+                    }
+                    else if (userData.type == 'A') {
+                        type = "Admin"
+                    }
+
+                    res.json({
+                        result: userData,
+                        message: "successfully Logged in as " + type
+                    })
+                }
+
+                else {
+                    res.json({
+                        message: "Login Failed",
+                    })
+                }
+
+               
+            })
+
+        })
+    })
+})
+app.post("/register", function (req, res) {
+    
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        var minm = 1000;
+        var maxm = 9999;
+        var uniqueId = req.body.type + Math.floor(Math.random() * (maxm - minm + 1) + minm);   
+             
+        var newData = {
+            type: req.body.type,
+            dob: req.body.dob,
+            name: req.body.name,
+            email: req.body.email,
+            phone: req.body.phone,
+            uniqueId: uniqueId,
+            password: req.body.password
+        }
+
+        bcrypt.genSalt(saltrounds, function (err, salt) {
+            if (err) throw err;
+            bcrypt.hash(req.body.password, salt, function (err, hash) {
+
+                if (err) throw err;
+                newData.password = hash;
+
+                db.collection("bususer").updateOne(
+                    { email: req.body.email }, {
+                    $setOnInsert: {
+                        type: req.body.type,
+                        dob: req.body.dob,
+                        name: req.body.name,
+                        phone: req.body.phone,
+                        uniqueId: uniqueId,
+                        password: newData.password
+                    }
+                },
+                    { upsert: true }, function (err, data) {
+                        if (err) throw err;
+                       
+                        if (data.upsertedCount > 0) {
+                            client.close();
+                            res.json(newData)
+                        }
+                        else {
+                            var userData = db.collection("bususer").findOne({ email: req.body.email });
+                            userData.then(function (result) {
+
+                                client.close();
+                                res.json({
+                                    Message: "Email Already exists",
+                                    result: result
+                                });
+                            })
+                                .catch(function (err) {
+                                    client.close();
+                                    res.json({
+                                        message: "Data not retrieved"
+                                    })
+                                });
+
+
+                        }
+
+                    });
+            })
+        })
+
+
+    })
+})
+
+app.post('/addbus', function (req, res) {
+
+    
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        db.collection("busop").insertOne((req.body), function (err, result) {
+            if (err) throw err;           
+            client.close();
+            res.send({
+                result: result,
+                message: 'Bus Data Added'
+            });
+        });
     });
+
+});
+app.get('/listbus', function (req, res) {
     
 
-    app.post('/login/passenger' ,function(req,res){
-        mongoClient.connect(url, (err, client) => {
-               if (err) return console.log(err);
-               var db=client.db("busdb");
-           db.collection("buspass").findOne({email:req.body.email},function(err,userdata){
-               if(err)throw err;
-               client.close();
-               console.log(userdata);
-               bcrypt.compare(req.body.pwd,userdata.pwd, function(err, result) {
-               if(result){
-                   
-                   //Generate token
-                   var jwtToken =jwt.sign({id:userdata.id},authenticate,'fasfsdfdsfg');
-                   console.log(jwtToken);
-               res.json({
-                   message:"Logged in",
-                   token :jwtToken
-               });
-           }
-       });
-               });
-               
-               
-       
-               });
-           });
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        var busresults = db.collection("busop").find().toArray();
+        busresults.then(function (data) {         
+            
+            client.close();
+            res.json(data);
+        })
+            .catch(function (err) {
+                client.close();
+                res.json({
+                    message: "error"
+                })
+            });
+    });
+});
+app.put('/edituser/:email', function (req, res) {
 
+    
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        db.collection("bususer").updateOne({ email: req.params.email },
+            { $set: { dob: req.body.dob,name:req.body.name, phone: req.body.phone} }, function (err, result) {
+                if (err) throw err;
 
-           app.post('/register/operator' ,function(req,res){
-            mongoClient.connect(url, (err, client) => {
-                   if (err) return console.log(err);
-                   var db=client.db("busdb");
-                   var newData={
-                   name :req.body.name,
-                   age:req.body.age,
-                   email:req.body.email, 
-                   pwd:req.body.pwd,
-                   contact:req.body.contact
-        
-                           
-                   }
-                   bcrypt.genSalt(saltRounds, function(err, salt) {
-                       if(err)throw err;
-                       console.log(salt); // Salt is generated(hash)
-                   bcrypt.hash(req.body.pwd, salt, function(err, hash) {
-                       if(err)throw err;
-                       console.log(hash);
-                       newData.pwd=hash;
-               db.collection("busop").insertOne(newData,function(err,data){
-                   if(err)throw err;
-                   client.close();
-                   res.json({
-                    message:"Operator registered,Approval pending"
-               });
-                   });
-                   
-                   
-           
-                   });
-               });
-           });
+                client.close();
+                res.json({
+                    result:result,
+                    message: "Updated to DB"
+                })
             });
 
+    });
+});
 
-           app.post('/login/operator' ,function(req,res){
-            mongoClient.connect(url, (err, client) => {
-                   if (err) return console.log(err);
-                   var db=client.db("busdb");
-               db.collection("busop").findOne({email:req.body.email},function(err,userdata){
-                   if(err)throw err;
-                   client.close();
-                   console.log(userdata);
-                   bcrypt.compare(req.body.pwd,userdata.pwd, function(err, result) {
-                   if(result){
-                       
-                       //Generate token
-                       var jwtToken =jwt.sign({id:userdata.id},authenticate,'ddssdsdsd');
-                       console.log(jwtToken);
-                   res.json({
-                       message:"Logged in",
-                       token :jwtToken
-                   });
-               }
-           });
-                   });
-                   
-                   
-           
-                   });
-               });
-    app.put('/passengers/editprofile/:emailid',authenticatepassenger,function(req,res){
-	 console.log(req.params.email);
-	 
-	 mongoClient.connect(url,function(err,client){
-		if(err)throw err;
-	var db = client.db("Busdb");
-	db.collection("buspass").updateOne({email:req.params.email},{$set :{"name":req.body.name,"age":req.body.age,"contact":req.body.contact}},function(err,data){
-		if(err)throw err;
-		
-		client.close();
-		 res.json({
-		 message:"Profile Updated"
-		
-	});
-	
-	 });
-	 
-	
-	 });
- });
- app.get('passenger/viewroutes/:source/:destination/:date',authenticatepassenger,(req,res)=>{
-    console.log(req.params.source);
-    console.log(req.params.destination);
-    console.log(req.params.date);
-    mongoClient.connect(url,(err,client)=>{
-        if(err) throw err;
-        var db = client.db('busdb');
-        db.collection('buspass').find({'source':req.params.source,'destination':req.params.destination,'date':req.params.date},(err,data)=>{
-            if(err) throw err;
-            if(data){
-                client.close();
-                res.json(data)
-            }
-            else{
-                client.close();
-                res.json({
-                    message: 'no buses found'
-                })
-            }
-        })
-    })
 
-})
-app.get('passenger/viewtickets/:email',authenticatepassenger,(req,res)=>{
-    mongoClient.connect(url,(err,client)=>{
-        if(err) throw err;
-        var db = client.db('busdb');
-        db.collection('buspass').find({'email':req.params.email},(err,data)=>{
-            if(err) throw err;
+app.post('/searchbuses', function (req, res) {
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        var busresults = db.collection("busop").find({ source: req.body.source, destination: req.body.destination, departDate: req.body.departDate }).toArray();
+        busresults.then(function (data) {
+            
             client.close();
-            res.json({
-                tickets: data.ticketsBooked
-            })
+            res.json(data);
         })
-    })
-})
-
-app.put('passenger/bookseats/:email',authenticatepassenger,(req,res)=>{
-    console.log(req.body);
-    mongoClient.connect(url,(err,client)=>{
-        if(err) throw err;
-        var db = client.db('busdb');
-        db.collection('buspass').find({'email':req.params.email},(err,data)=>{
-            if(err) throw err;
-            console.log(data);
-            const passengerTicketDetails = {
-                 
-                    ticketId: req.body.ticketId,
-                    noOfTickets:req.body.noOfTickets,
-                    price: req.body.price,
-                    status: 'upcoming',
-                    date: req.body.date,
-                    time: req.body.time,
-                    seatNo: req.body.seatNo
-                
-            }
-            db.collection('buspass').updateOne({'email':req.params.email},{ $set : {'ticketsBooked':passengerTicketDetails}},(err,data)=>{
-                if(err) throw err;
+            .catch(function (err) {
                 client.close();
                 res.json({
-                    message: 'bus tickets booked'
+                    message: "error"
                 })
-            })
-        })
-    })
-})
+            });
+    });
+});
 
+app.put('/editSeats/:busNum/:avlSeats', function (req, res) {
 
-app.put('passenger/cancelseats/:email',authenticatepassenger,(req,res)=>{
-    console.log(req.body);
-    mongoClient.connect(url,(err,client)=>{
-        if(err) throw err;
-        var db = client.db('busdb');
-        db.collection('buspass').find({'email':req.params.email},(err,data)=>{
-            if(err) throw err;
-            console.log(data);
-            const passengerTicketDetails = {
-                 
-                    ticketId: req.body.ticketId,
-                    noOfTickets:req.body.noOfTickets,
-                    price: req.body.price,
-                    status: 'cancelled',
-                    date: req.body.date,
-                    time: req.body.time,
-                    seatNo: req.body.seatNo
-                
-            }
-            db.collection('buspass').updateOne({'email':req.params.email},{ $set : {'ticketsBooked':passengerTicketDetails}},(err,data)=>{
-                if(err) throw err;
-                client.close();
-                res.json({
-                    message: 'bus tickets cancelled'
-                })
-            })
-        })
-    })
-})
-
-
-app.put('bus/bookseat/:regNo',authenticatepassenger,(req,res)=>{
-    console.log(req.body);
-    mongoClient.connect(url,(err,client)=>{
-        if(err) throw err;
-        var db = client.db('busdb');
-        db.collection('bus').find({'regNo':req.params.regNo},(err,data)=>{
-            if(err) throw err;
-            console.log(data);
-            const bus = {
-                availableTickets:data.availableTickets - req.body.noOfTickets
-            }
-            db.collection('bus').updateOne({'regNo':req.params.regNo},{$set :{
-                'availableTickets':bus.availableTickets
-            }
-        },(err,data)=>{
-                if(err) throw err;
-                client.close();
-                res.json({
-                    message: 'bus tickets booked'
-                })
-            })
-        })
-    })
-})
-
-
-//cancel Ticket
-
-app.put('bus/cancelseats/:regNo',authenticatepassenger,(req,res)=>{
-    console.log(req.body);
-    mongoClient.connect(url,(err,client)=>{
-        if(err) throw err;
-        var db = client.db('busdb');
-        db.collection('bus').find({'regNo':req.params.regNo},(err,data)=>{
-            if(err) throw err;
-            console.log(data);
-            const bus = {
-                availableTickets:data.availableTickets + req.body.noOfTickets
-            }
-            db.collection('bus').updateOne({'regNo':req.params.regNo},{$set :{
-                'availableTickets':busBookDetails.availableTickets
-            }
-        },(err,data)=>{
-                if(err) throw err;
-                client.close();
-                res.json({
-                    message: 'bus tickets cancelled'
-                })
-            })
-        })
-    })
-})
-
-
-
-app.post('/operator/addbus', authenticateoperator, (req, res) => {
-    const busDetails = {
-        name: req.body.name,
-        source: req.body.source,
-        destination: req.body.destination,
-        date: req.body.date,
-        time: req.body.time,
-        totalTickets: req.body.totalTickets,
-        availableTickets: req.body.availableTickets,
-        price: req.body.price,
-        busType: req.body.busType,
-        status: 'pending',
-        regNo: req.body.regNo,
-        driverNo: req.body.driverNo,
-        operatorName: req.body.operatorName
+    
+    
+    var blockedSeats = req.body;
+    var bal_seats;
+    
+    if (blockedSeats.length == 12) {
+        bal_seats = 0
     }
-    mongoClient.connect(url, (err, client) => {
-        let db = client.db('busdb');
-        db.collection('bus').findOne({ "regNo": req.body.regNo }, (err, data) => {
-            if (err) throw err;
-            if (!data) {
-                db.collection('bus').insertOne(busDetails, (err, data) => {
-                    if (err) throw err;
-                    client.close();
+    else {
+        bal_seats = 12 - blockedSeats.length
+    }
 
-                    res.json(data)
-                })
-            }
-            else {
+    var updateSeats = {
+        s1: blockedSeats.includes('s1') ? true : false,
+        s2: blockedSeats.includes('s2') ? true : false,
+        s3: blockedSeats.includes('s3') ? true : false,
+        s4: blockedSeats.includes('s4') ? true : false,
+        s5: blockedSeats.includes('s5') ? true : false,
+        s6: blockedSeats.includes('s6') ? true : false,
+        s7: blockedSeats.includes('s7') ? true : false,
+        s8: blockedSeats.includes('s8') ? true : false,
+        s9: blockedSeats.includes('s9') ? true : false,
+        s10: blockedSeats.includes('s10') ? true : false,
+        s11: blockedSeats.includes('s11') ? true : false,
+        s12: blockedSeats.includes('s12') ? true : false
+    }
+       
+
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        //var ObjectId = require('mongodb').ObjectID;
+        db.collection("busop").updateOne({ busNum: req.params.busNum },
+            { $set: { seatstatus: updateSeats, avlSeats: bal_seats } }, function (err, result) {
+                if (err) throw err;
+                
                 client.close();
                 res.json({
-                    message: 'bus already exists'
+                    result: result,
+                    message: "Seats Updated"
                 })
-            }
-        })
-    })
-})
+            });
 
-app.delete('/operator/deletebus/:regno',authenticateoperator,(req,res)=>{
-    console.log(req.params.regNo);
-    mongoClient.connect(url,(err,client)=>{
-        let db = client.db('busdb');
-        db.collection('bus').deleteOne({'regNo':req.params.regNo},(err,data)=>{
-            if(err) throw err;
+    });
+});
+
+app.get('/seatstatus/:busnum', function (req, res) {
+       
+
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        var busData = db.collection("busop").findOne({ busNum: req.params.busnum });
+        busData.then(function (data) {
+            
             client.close();
-            res.json({
-                message:'bus deleted'
-            })
+            res.json(data);
         })
-    })
-})
+            .catch(function (err) {
+                client.close();
+                res.json({
+                    message: "error"
+                })
+            });
+    });
+});
 
 
 
-        
-       app.listen(3000,function(){
-       console.log("Port is running in 3000")
-       });
+
+
+app.put('/editbus/:id', function (req, res) {
+
+    
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        db.collection("busop").updateOne({ busNum: req.params.id },
+            { $set: { source: req.body.source, destination: req.body.destination, departDate: req.body.departDate, departTime: req.body.departTime, arrivalDate: req.body.arrivalDate, arrivalTime: req.body.arrivalTime } }, function (err, result) {
+                if (err) throw err;
+               
+                client.close();
+                res.json({
+                    message: "Updated to DB"
+                })
+            });
+
+    });
+});
+
+
+
+
+app.post('/addticket', function (req, res) {
+
+
+    
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        db.collection("ticketData").insertOne((req.body), function (err, result) {
+            if (err) throw err;         
+            
+            client.close();
+            res.send({
+                result: result,
+                message: 'Bus Data Added'
+            });
+        });
+    });
+
+});
+
+
+app.get('/listtickets/:email', function (req, res) {    
+
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        var Ticketresults = db.collection("ticketData").find({ userEmail: req.params.email }).toArray();
+        Ticketresults.then(function (data) {
+           
+            client.close();
+            res.json(data);
+        })
+            .catch(function (err) {
+                client.close();
+                res.json({
+                    message: "error"
+                })
+            });
+    });
+});
+
+
+app.get('/viewticket/:ticketId', function (req, res) {    
+
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        var TicketData = db.collection("ticketData").findOne({ ticketId: req.params.ticketId });
+        TicketData.then(function (data) {
+            
+            client.close();
+            res.json(data);
+        })
+            .catch(function (err) {
+                client.close();
+                res.json({
+                    message: "error"
+                })
+            });
+    });
+});
+
+app.put('/cancelticket/:ticketId', function (req, res) {
+
+    
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        db.collection("ticketData").updateOne({ ticketId: req.params.ticketId },
+            { $set: { status: "Cancelled" } }, function (err, result) {
+                if (err) throw err;            
+
+                client.close();
+                res.json({
+                    message: "Updated to DB"
+                })
+            });
+
+    });
+});
+
+app.put('/freeseats/:busNum/:freeseats', function (req, res) {
+
+   
+   
+    var freeSeats=req.params.freeseats.split(',')    
+    var blockedSeats=req.body;
+    var bal_seats;
+    freeSeats.forEach((item)=>{
+        if (blockedSeats.includes(item))
+        {
+            var index=blockedSeats.indexOf(item);
+            blockedSeats.splice(index,1)
+        }
+    })   
+
+    if (blockedSeats.length == 12) {
+        bal_seats = 0
+    }
+    else {
+        bal_seats = 12 - blockedSeats.length
+    }
+
+    
+    
+    var updateSeats = {
+        s1: blockedSeats.includes('s1') ? true : false,
+        s2: blockedSeats.includes('s2') ? true : false,
+        s3: blockedSeats.includes('s3') ? true : false,
+        s4: blockedSeats.includes('s4') ? true : false,
+        s5: blockedSeats.includes('s5') ? true : false,
+        s6: blockedSeats.includes('s6') ? true : false,
+        s7: blockedSeats.includes('s7') ? true : false,
+        s8: blockedSeats.includes('s8') ? true : false,
+        s9: blockedSeats.includes('s9') ? true : false,
+        s10: blockedSeats.includes('s10') ? true : false,
+        s11: blockedSeats.includes('s11') ? true : false,
+        s12: blockedSeats.includes('s12') ? true : false
+    }
+
+    
+
+    mongoClient.connect(url, { useUnifiedTopology: true }, function (err, client) {
+        if (err) throw err;
+        var db = client.db("busdb");
+        //var ObjectId = require('mongodb').ObjectID;
+        db.collection("busop").updateOne({ busNum: req.params.busNum },
+            { $set: { seatstatus: updateSeats, avlSeats: bal_seats}}, function (err, result) {
+                if (err) throw err;               
+
+                client.close();
+                res.json({
+                    result: result,
+                    message: "Cancelled"
+                })
+            });
+
+    });
+});
+app.listen(3000, function () {
+    console.log("Port is running in 3000")
+});
